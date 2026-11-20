@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException
 
 from app.db import connect
+from app.modules import dual_drop_conflict as ddc
 from app.seed import overdue_hours
 from app.services import bay as bay_svc
 from app.services import ingest as ingest_svc
@@ -75,6 +76,29 @@ def occupancy_proofs():
             "SELECT * FROM occupancy_proofs ORDER BY id DESC LIMIT 50"
         ).fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@router.get("/slot-conflicts")
+def slot_conflicts():
+    """槽位冲突核证（只读）：双事件 id + 格口 + 先占占用 id。"""
+    conn = connect()
+    try:
+        return ddc.list_conflicts(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/slot-conflicts/{conflict_id}")
+def slot_conflict_detail(conflict_id: int):
+    """槽位冲突核证（只读）：整组载荷回看，先占事件与冲突 drop 同组。"""
+    conn = connect()
+    try:
+        out = ddc.get_conflict(conn, conflict_id)
+        if out is None:
+            raise HTTPException(404, "冲突记录不存在")
+        return out
     finally:
         conn.close()
 

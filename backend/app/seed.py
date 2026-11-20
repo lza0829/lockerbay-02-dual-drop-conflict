@@ -2,8 +2,10 @@ import json
 from datetime import datetime, timezone
 
 from app.db import FIXTURES_DIR, connect
+from app.modules import dual_drop_conflict
 
-SCHEMA = """
+SCHEMA = (
+    """
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -69,6 +71,8 @@ CREATE TABLE IF NOT EXISTS occupancy_proofs (
   created_at TEXT NOT NULL
 );
 """
+    + dual_drop_conflict.SCHEMA
+)
 
 
 def overdue_hours(conn) -> int:

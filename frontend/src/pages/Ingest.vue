@@ -13,6 +13,10 @@ onMounted(load)
     <p class="sub">投柜 / 取件事件进入主通道；基座按顺序物化占用。</p>
     <p><button @click="run">跑一批夹具</button></p>
     <pre v-if="report" class="panel">{{ report }}</pre>
+    <p v-if="report?.conflicts" class="sub">
+      {{ report.conflicts }} 条同格二次投柜已在装载入口整组搁置，先占占用保持冲突前态；见
+      <router-link to="/proofs">核账</router-link> 回看双方载荷。
+    </p>
     <div class="panel" style="margin-top:1rem; overflow:auto">
       <table>
         <thead><tr><th>事件</th><th>类型</th><th>格口</th><th>运单</th><th>时刻</th></tr></thead>

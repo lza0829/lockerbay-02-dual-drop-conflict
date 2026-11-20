@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from app.db import FIXTURES_DIR, connect
+from app.modules import dual_drop_conflict as ddc
 
 
 def run_batch():
@@ -15,9 +16,22 @@ def run_batch():
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     conn = connect()
     accepted = 0
+    conflicts = 0
+    skipped = 0
     try:
         for ev in events:
-            conn.execute(
+            if ddc.event_known(conn, ev["id"]):
+                skipped += 1
+                continue
+            if ev["event_type"] == "drop" and ev.get("cell_id"):
+                # 装载入口分流：目标格已有 status=occupied 占用 → 整组进搁置，
+                # 不开第二条占用，也不改写既有占用的 tracking_no/opened_at。
+                occ = ddc.find_open_occupancy(conn, ev["cell_id"])
+                if occ:
+                    ddc.shelve_conflict(conn, ev, occ, now)
+                    conflicts += 1
+                    continue
+            cur = conn.execute(
                 "INSERT OR IGNORE INTO parcel_events(id, cabinet_id, cell_id, event_type, event_ts, tracking_no, payload_json, channel) VALUES (?,?,?,?,?,?,?,?)",
                 (
                     ev["id"],
@@ -30,7 +44,7 @@ def run_batch():
                     "primary",
                 ),
             )
-            if conn.total_changes:
+            if cur.rowcount:
                 accepted += 1
             if ev["event_type"] == "drop" and ev.get("cell_id"):
                 cell = conn.execute("SELECT status FROM cells WHERE id=?", (ev["cell_id"],)).fetchone()
@@ -52,11 +66,17 @@ def run_batch():
                         (ev["event_ts"], ev["id"], row["id"]),
                     )
                     conn.execute("UPDATE cells SET status='free' WHERE id=?", (ev["cell_id"],))
+        report = {
+            "accepted": accepted,
+            "conflicts": conflicts,
+            "skipped": skipped,
+            "total": len(events),
+        }
         conn.execute(
             "INSERT INTO ingest_batches(id, created_at, report_json) VALUES (?,?,?)",
-            (batch_id, now, json.dumps({"accepted": accepted, "total": len(events)}, ensure_ascii=False)),
+            (batch_id, now, json.dumps(report, ensure_ascii=False)),
         )
         conn.commit()
-        return {"batch_id": batch_id, "accepted": accepted, "total": len(events)}
+        return {"batch_id": batch_id, **report}
     finally:
         conn.close()
